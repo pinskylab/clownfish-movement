@@ -1,0 +1,133 @@
+---
+title: "Size vs. Movement"
+output: html_notebook
+---
+```{r setup}
+library(tidyverse)
+library(geosphere)
+
+source("~/db-connections.R")
+leyte <- read_db("Leyte")
+
+fish_db <- leyte %>% 
+  tbl("clownfish") %>% 
+  collect()
+```
+
+Plotting size vs. movement of clownfish to see if there is a relationship.  The data for this plot was generated using the clownfish-demographics project
+
+```{r}
+recap_w_lat <- read_csv("https://raw.githubusercontent.com/pinskylab/clownfish-demographics/master/data/recap_w_lat.csv?token=AG664YPECMP5WN5RW6EODDK5O67Y6", col_types = cols(.default = col_character())) %>% 
+  mutate(fish_table_id = as.numeric(fish_table_id))
+  
+```
+## Fish indiv 767 has a missing lat lon 
+```{r}
+test <- recap_w_lat %>% 
+  filter(fish_indiv == 767)
+
+recap_w_lat <- recap_w_lat %>% 
+  filter(fish_indiv != 767)
+```
+
+
+## Iterate through all of the capture events for fish and measure the distance between captures
+```{r}
+# create data holder
+output <- tibble()
+
+# create list of individuals - I'm using fish_table_id so that I measure each capture event against the others instead of just measuring the first against the others
+fish <- recap_w_lat %>% 
+  select(fish_table_id, fish_indiv) %>% 
+  distinct()
+
+for (i in seq(fish$fish_table_id)){
+  current_fish <- recap_w_lat %>% 
+    filter(fish_indiv == fish$fish_indiv[[i]])
+  while(nrow(current_fish) > 1){
+    cap_dist <- current_fish %>% 
+      mutate(distance_m = distGeo(p1 = current_fish[1,c("lon", "lat")], p2 = current_fish[nrow(current_fish),c("lon", "lat")])) %>% 
+      select(fish_table_id, fish_indiv, distance_m, date, site) %>% 
+      distinct() 
+    
+    output <- rbind(output, cap_dist) %>% 
+      distinct()
+    
+    current_fish <- current_fish %>% 
+      slice(1:(nrow(current_fish)-1))
+    }
+}
+
+```
+
+## Attach fish meta data 
+```{r}
+fish_w_dist <- output %>% 
+  left_join(select(fish_db, fish_table_id:recap), by = "fish_table_id")
+
+# keep only the oldest dates of capture
+fish_w_dist_refined <- fish_w_dist %>% 
+  select(fish_indiv, distance_m, size, date, sex) %>% 
+  arrange(desc(date)) %>% 
+  distinct(fish_indiv, distance_m, .keep_all = T) %>% 
+  filter(!is.na(size))
+
+ggplot(fish_w_dist_refined, aes(size, distance_m)) + 
+  geom_point(aes(color = date)) +
+  theme_classic()+
+  theme(legend.position = "none") +
+  labs(title = "Size vs. distance moved by clownfish in Leyte")
+
+ggsave(here::here("plots", "size-movement-plot.png"))
+```
+## There does not appear to be a relationship between size and movement.
+
+### If we remove the one fish that is an outlier, does the resolution reveal any relationship?
+```{r}
+remove_outlier <- fish_w_dist_refined %>% 
+  filter(distance_m < 5000)
+
+ggplot(remove_outlier, aes(size, distance_m)) + 
+  geom_point(aes(color = date)) +
+  theme_classic()+
+  theme(legend.position = "none") +
+  labs(title = "Size vs. distance (outlier removed)")
+
+ggsave(here::here("plots", "size-movement-no-outlier-plot.png"))
+```
+## Is there a relationship between sex and movement?
+```{r}
+ggplot(filter(fish_w_dist_refined, !is.na(sex)), aes(sex, distance_m)) + 
+  geom_point(aes(color = sex)) +
+  theme_classic()+
+  theme(legend.position = "none") +
+  labs(title = "Sex vs. distance moved by clownfish in Leyte")
+
+ggsave(here::here("plots", "sex-distance.png"))
+```
+```{r}
+ggplot(filter(remove_outlier, !is.na(sex)), aes(sex, distance_m)) + 
+  geom_point(aes(color = sex)) +
+  theme_classic()+
+  theme(legend.position = "none") +
+  labs(title = "Sex vs. distance (outlier removed)", caption = "Both males and females move, but where they females in their prior capture?")
+```
+
+## Did they change sex between captures?
+Make a list of fish that do not change sex between captures and replot
+```{r}
+same_sex <- fish_w_dist %>% 
+  filter(!is.na(sex)) %>% 
+  select(fish_indiv, sex) %>% 
+  group_by(fish_indiv) %>% 
+  distinct() %>% 
+  filter(n() == 1)
+
+ggplot(filter(remove_outlier, fish_indiv %in% same_sex$fish_indiv, !is.na(sex)), aes(sex, distance_m)) + 
+  geom_point(aes(color = sex)) +
+  theme_classic()+
+  theme(legend.position = "none") +
+  labs(title = "Sex vs. distance (same sex between captures)", caption = "Both males and females move")
+
+ggsave(here::here("plots", "no-sex-change-distance.png"))
+```
