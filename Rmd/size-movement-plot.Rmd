@@ -66,13 +66,10 @@ for (i in seq(fish$fish_table_id)){
 ```{r}
 fish_w_dist <- output %>% 
   left_join(select(fish_db, fish_table_id:recap), by = "fish_table_id")
+
+write_csv(fish_w_dist, here::here("data", "fish_w_dist.csv"))
 ```
 
-## Attach anem meta data
-```{r}
-fish_w_anem <- fish_w_dist %>% 
-  left_join(select(anem_db, anem_table_id:anem_obs), by = "anem_table_id")
-```
 
 ## plot size vs. movement
 ```{r}
@@ -89,7 +86,7 @@ ggplot(fish_w_dist_refined, aes(size, distance_m)) +
   theme(legend.position = "none") +
   labs(title = "Size vs. distance moved by clownfish in Leyte")
 
-ggsave(here::here("plots", "size-movement-plot.png"))
+# ggsave(here::here("plots", "size-movement-plot.png"))
 ```
 ## There does not appear to be a relationship between size and movement.
 
@@ -104,7 +101,7 @@ ggplot(remove_outlier, aes(size, distance_m)) +
   theme(legend.position = "none") +
   labs(title = "Size vs. distance (outlier removed)")
 
-ggsave(here::here("plots", "size-movement-no-outlier-plot.png"))
+# ggsave(here::here("plots", "size-movement-no-outlier-plot.png"))
 ```
 ## Is there a relationship between sex and movement?
 ```{r}
@@ -114,7 +111,7 @@ ggplot(filter(fish_w_dist_refined, !is.na(sex)), aes(sex, distance_m)) +
   theme(legend.position = "none") +
   labs(title = "Sex vs. distance moved by clownfish in Leyte")
 
-ggsave(here::here("plots", "sex-distance.png"))
+# ggsave(here::here("plots", "sex-distance.png"))
 ```
 ```{r}
 ggplot(filter(remove_outlier, !is.na(sex)), aes(sex, distance_m)) + 
@@ -140,74 +137,5 @@ ggplot(filter(remove_outlier, fish_indiv %in% same_sex$fish_indiv, !is.na(sex)),
   theme(legend.position = "none") +
   labs(title = "Sex vs. distance (same sex between captures)", caption = "Both males and females move")
 
-ggsave(here::here("plots", "no-sex-change-distance.png"))
+# ggsave(here::here("plots", "no-sex-change-distance.png"))
 ```
-
-## Did we see the anemone of the previous capture year?
-```{r}
-# Make a list of fish_indivs that have anem info
-fish_list <- fish_w_anem %>% 
-  filter(!is.na(anem_id) | !is.na(anem_obs)) %>% 
-  select(fish_indiv) %>% 
-  distinct() 
-
-output <- tibble(fish_indiv = NA, date = NA, anem_id = NA, old_anem_id = NA, anem_obs = NA, second_year = NA, later_year = NA)
-
-for(i in seq(fish_list$fish_indiv)){
-  # on which anemones was this fish observed?
-  recap_fish <- fish_w_anem %>% 
-    filter(fish_indiv == fish_list$fish_indiv[i]) %>% 
-    select(fish_indiv, date, anem_id, old_anem_id, anem_obs) %>% 
-    distinct() %>% 
-    arrange(date) %>% 
-    filter(!is.na(anem_id) | !is.na(anem_obs)) %>% 
-    mutate(second_year = NA, later_year = NA)
-  
-  
-  # if the anemones were different, did we see the first anemone again in the second capture year?
-  if(nrow(distinct(recap_fish, anem_obs)) == nrow(recap_fish)){
-    # get the year of the second capture event
-    year_second_capture <- recap_fish %>% 
-      slice(2) %>% 
-      mutate(year = lubridate::year(date)) %>% 
-      select(year)
-    
-    # get the observation id of the first anemone
-    first_anem <- recap_fish %>% 
-      slice(1) %>% 
-      select(anem_obs)
-    
-    # check the database to see if the first anemone was observed in the second year
-    observed <- anem_db %>% 
-      filter(anem_obs == first_anem$anem_obs) %>% 
-      mutate(year = year(date)) %>% 
-      filter(year == year_of_second_capture$year)
-    if(nrow(observed) == 0){
-      recap_fish <- recap_fish %>% 
-        mutate(second_year = F)
-      # check to see if the first anemone was observed ever again after the second capture
-      observed <- anem_db %>% 
-      filter(anem_obs == first_anem$anem_obs) %>% 
-      mutate(year = year(date)) %>% 
-      filter(year > year_of_second_capture$year)
-      if(nrow(observed) == 0){
-        recap_fish <- recap_fish %>% 
-        mutate(later_year = F)
-      }else{
-        recap_fish <- recap_fish %>% 
-        mutate(later_year = T)
-      }
-    
-    }else{
-      recap_fish <- recap_fish %>% 
-        mutate(second_year = T)
-    }
-    
-  }
-  output <- rbind(output, recap_fish)
-  
-
-}
-
-```
-
