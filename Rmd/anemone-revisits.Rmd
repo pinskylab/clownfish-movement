@@ -1,0 +1,154 @@
+---
+title: "Anemone Revisits"
+output: html_notebook
+---
+
+Were fish captured on the same anemone or different anemones
+
+```{r setup}
+library(tidyverse)
+library(geosphere)
+library(lubridate)
+
+source("~/db-connections.R")
+leyte <- read_db("Leyte")
+
+fish_db <- leyte %>% 
+  tbl("clownfish") %>% 
+  collect()
+
+
+anem_db <- leyte %>% 
+  tbl("anemones") %>% 
+  collect() %>% 
+  # we need dates for these anemones so I'm sticking the dive_db dates on here too
+  left_join((leyte %>% tbl("diveinfo") %>% select(date, dive_table_id) %>% collect()), by = "dive_table_id")
+
+# This data  was generated using the size-movement.Rmd
+fish_w_dist <- read_csv("https://raw.githubusercontent.com/pinskylab/clownfish-movement/master/data/fish_w_dist.csv")
+```
+
+## Attach anem meta data
+```{r}
+fish_w_anem <- fish_w_dist %>% 
+  left_join(select(anem_db, anem_table_id:anem_obs), by = "anem_table_id")
+```
+## Did we see the anemone of the previous capture year?
+```{r}
+# Make a list of fish_indivs that have anem info
+fish_list <- fish_w_anem %>% 
+  filter(!is.na(anem_id) | !is.na(anem_obs)) %>% 
+  # remove fish that lost their second capture event with the above line
+  group_by(fish_indiv) %>% 
+  filter(n() != 1) %>% 
+  select(fish_indiv) %>% 
+  distinct() 
+
+output <- tibble(fish_indiv = NA, date = NA, anem_id = NA, old_anem_id = NA, anem_obs = NA, second_year = NA, later_year = NA)
+
+for(i in seq(fish_list$fish_indiv)){
+  # on which anemones was this fish observed?
+  recap_fish <- fish_w_anem %>% 
+    filter(fish_indiv == fish_list$fish_indiv[i]) %>% 
+    select(fish_indiv, date, anem_id, old_anem_id, anem_obs) %>% 
+    distinct() %>% 
+    arrange(date) %>% 
+    filter(!is.na(anem_id) | !is.na(anem_obs)) %>% 
+    mutate(second_year = NA, later_year = NA)
+  
+  
+  # if the anemones were different, did we see the first anemone again in the second capture year?
+  if(nrow(distinct(recap_fish, anem_obs)) == nrow(recap_fish)){
+    # get the year of the second capture event
+    year_second_capture <- recap_fish %>% 
+      slice(2) %>% 
+      mutate(year = lubridate::year(date)) %>% 
+      select(year)
+    
+    # get the observation id of the first anemone
+    first_anem <- recap_fish %>% 
+      slice(1) %>% 
+      select(anem_obs)
+    
+    # check the database to see if the first anemone was observed in the second year
+    observed <- anem_db %>% 
+      filter(anem_obs == first_anem$anem_obs) %>% 
+      mutate(year = year(date)) %>% 
+      filter(year == year_second_capture$year)
+    if(nrow(observed) == 0){
+      recap_fish <- recap_fish %>% 
+        mutate(second_year = F)
+      # check to see if the first anemone was observed ever again after the second capture
+      observed <- anem_db %>% 
+      filter(anem_obs == first_anem$anem_obs) %>% 
+      mutate(year = year(date)) %>% 
+      filter(year > year_second_capture$year)
+      if(nrow(observed) == 0){
+        recap_fish <- recap_fish %>% 
+        mutate(later_year = F)
+      }else{
+        recap_fish <- recap_fish %>% 
+        mutate(later_year = T)
+      }
+    
+    }else{
+      recap_fish <- recap_fish %>% 
+        mutate(second_year = T)
+    }
+    
+  }
+  output <- rbind(output, recap_fish)
+  
+
+}
+
+anems_not_seen_again <- output %>% 
+  filter(second_year == F, later_year == F)
+
+
+anems_seen_second_year <- output %>%
+  filter(second_year == T)
+
+
+anems_only_seen_later <- output %>% 
+  filter(second_year == F, later_year == T)
+
+
+print(str_c(nrow(anems_not_seen_again), " anemones were never seen again, ", nrow(anems_seen_second_year), " anemones were seen the second year but the fish was not present, ", nrow(anems_only_seen_later), " anemones were seen in later years but the fish was not present."))
+```
+
+
+## Other scenarios
+#### If a fish was captured more than once on the same anemone, but also different anemones
+```{r}
+# I'm using rangers to refer to fish that are ranging around, using the same anemone but also others
+rangers <- fish_w_anem %>% 
+  filter(!is.na(anem_obs)) %>% 
+  distinct(fish_indiv, anem_obs, date, anem_obs_time, .keep_all = T) %>% 
+  group_by(fish_indiv, anem_obs) %>% 
+  summarise(times_on_anem = n()) 
+
+rangers <- rangers %>% 
+  group_by(fish_indiv) %>% 
+  mutate(num_anems_visited = n())
+
+write_csv(rangers, here::here("data", "rangers.csv"))
+```
+## Plot times on anem
+```{r}
+ggplot(rangers, aes(x = times_on_anem)) +
+  geom_bar() + 
+  labs(title = "Number of times fish was captured on same anemone") +
+  theme_classic()
+
+# ggsave(here::here("plots", "same-anem-count.png"))
+```
+## Plot num_anems
+```{r}
+ggplot(rangers, aes(x = num_anems_visited)) +
+  geom_bar() + 
+  labs(title = "Number of anemones on which one fish was captured")+
+  theme_classic()
+
+# ggsave(here::here("plots", "cap-anem-count.png"))
+```
