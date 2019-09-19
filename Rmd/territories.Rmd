@@ -8,6 +8,7 @@ library(tidyverse)
 library(sf) # for calculating the area of a polygon
 library(tmap) # for making maps of convex hulls
 library(ggthemes) # for making maps
+library(leaflet) # for zooming in to maps
 
 
 # load functions
@@ -95,19 +96,38 @@ area_fish <- fish_anem %>%
       group_by(fish_indiv) %>% 
       slice(chull(lon, lat))
     
-    # try one individual, might be that this is too zoomed out
-    one_site <- area_fish %>% 
-      filter(site == "Palanas") 
-    hull <- one_site%>% 
-      slice(chull(lon, lat))
+    # # try one individual, might be that this is too zoomed out
+    # one_site <- area_fish %>% 
+    #   filter(site == "Palanas") 
+    # hull <- one_site%>% 
+    #   slice(chull(lon, lat))
     
-    p <- ggplot(one_site, aes(lon, lat)) + geom_point(shape = 21)
+    p <- ggplot(area_fish, aes(lon, lat)) + geom_point(shape = 21)
     p + aes(fill = factor(fish_indiv)) + geom_polygon(data = hull, alpha = 0.5)
     # The problem is that it is too zoomed out.  Try by site?
 
 ```
 # Can this be plotted to leaflet so one can zoom in and out?
 ```{r}
+factpal <- colorFactor(topo.colors(36), area_fish$fish_indiv)
+
+my_map <- leaflet() %>% 
+  # add content
+  addTiles() %>% 
+  addCircleMarkers(
+    lng=area_fish$lon, 
+    lat=area_fish$lat, 
+    stroke=FALSE,
+    radius = 6, 
+    color = ~factpal(fish_indiv)) %>% 
+  addPolygons(lng = hull$lon, 
+               lat = hull$lat, 
+              opacity = 0.5, 
+              weight = 1)
+
+my_map
+
+# can I add polygons? https://rstudio.github.io/leaflet/shapes.html & https://rstudio.github.io/leaflet/choropleths.html
 
 ```
 
