@@ -5,12 +5,10 @@ output: html_notebook
 ```{r setup}
 # load libraries
 library(tidyverse)
-library(purrr)
 library(sf) # for calculating the area of a polygon
-# library(concaveman) # for making convex hulls
 library(tmap) # for making maps of convex hulls
 library(ggthemes) # for making maps
-library(igraph) # for making convex hulls
+
 
 # load functions
 source("~/db-connections.R")
@@ -106,79 +104,13 @@ area_fish <- fish_anem %>%
     p <- ggplot(one_site, aes(lon, lat)) + geom_point(shape = 21)
     p + aes(fill = factor(fish_indiv)) + geom_polygon(data = hull, alpha = 0.5)
     # The problem is that it is too zoomed out.  Try by site?
-    
 
-
-test <- area_fish %>% 
-  group_by(fish_indiv) %>% 
-  nest() %>% 
-  mutate(
-    # hull = map(data, ~with(.x, chull(lon, lat))), # this is no different than area_fish arranged by fish_indiv
-   
-    
-    # ---------- NOT WORKING AT ALL --------------
-    # hull = map(data, ~with(as.matrix(.x), concave_hull(.x))), # Error in eval(substitute(expr), data, enclos = parent.frame()) : numeric 'envir' arg not of length one
-    # hull = map(data, ~with(.x, concave_hull(lon, lat))), # wants only one argument that is a matrix of points
-    # hull = map(data, ~with(.x, concaveman(as.matrix(.)))), # this line makes out populate with NAs and makes unnest fail
-    # hull = map(data, ~as.matrix(.x), concaveman::concaveman(.x)), # also causes out and unnest to fail
-    out = map2(data, hull, ~.x[.y,,drop=FALSE])) %>% 
-  select(-data) %>% 
-  unnest()
-
-
-test1 <- area_fish %>% 
-  arrange(fish_indiv)
-
-# plot chull and original polygons
-# ggplot(test, aes(lon, lat)) +
-#   geom_polygon(alpha = 0.2) +
-#   geom_polygon(data = area_fish, alpha = 0.2)
-
-# try a for loop with convex_hull and a matrix - not sure what to do with the results of this
-# fishes <- distinct(area_fish, fish_indiv)
-# 
-# for(i in seq_along(fishes$fish_indiv)){
-#   this_fish <- area_fish %>% 
-#     filter(fish_indiv == fishes$fish_indiv[i]) %>% 
-#     select(-fish_indiv)
-#   hull <- convex_hull(as.matrix(this_fish))
-# }
-
-# from oceanadapt
-hullpts <-  chull(x=lon, y=lat) # find indices of vertices
-  hullpts = c(hullpts,hullpts[1]) # close the loop
-  lonlat <- data.frame(cbind(lon, lat))
-  ps = appendPolys(NULL,mat=as.matrix(lonlat[hullpts,]),1,1,FALSE) # create a Polyset object
-  attr(ps,"projection") = "LL" # set projection to lat/lon
-  psUTM = convUL(ps, km=TRUE) # convert to UTM in km
-  polygonArea = calcArea(psUTM,rollup=1)
-  return(polygonArea$area)
-
-
-# plot(test$hull, x= )
+```
+# Can this be plotted to leaflet so one can zoom in and out?
+```{r}
 
 ```
 
-
-# tried concaveman but couldn't get it to work
-```{r eval=FALSE}
-
-fishes <- distinct(area_fish, fish_indiv)
-hulls <- tibble()
-for (i in seq_along(fishes$fish_indiv)){
-  by_fish <- area_fish %>% 
-    filter(fish_indiv == fishes$fish_indiv[i]) %>% 
-    select(-fish_indiv)
-  hull <- concaveman(as.matrix(by_fish))
-  test <- cbind(area_fish)
-  hulls <- c(hulls, hull)
-  
-  ggplot(by_fish, aes(lon, lat)) +
-    tm_shape(by_fish, is.master = TRUE) +
-    tm_dots(size = 0.2, col = "orange") +
-    tm_shape(hull) + tm_borders(lwd = 2)
-}
-```
 
 
 
